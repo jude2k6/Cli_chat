@@ -1,0 +1,73 @@
+# ========================
+# CLion project files
+# ========================
+.idea/
+*.iml
+
+# ========================
+# CMake build directories
+# ========================
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# ========================
+# Compiled object files
+# ========================
+*.o
+*.obj
+*.lo
+*.la
+*.lai
+
+# ========================
+# Executables
+# ========================
+*.out
+*.exe
+*.app
+*.elf
+*.bin
+
+# ========================
+# Libraries
+# ========================
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# ========================
+# Debug files
+# ========================
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# ========================
+# Other temporary files
+# ========================
+*.log
+*.swp
+*~
+*.tmp
+*.bak
+
+# ========================
+# macOS specific
+# ========================
+.DS_Store
+
+# ========================
+# Linux specific
+# ========================
+*~
+
+# ========================
+# Windows specific
+# ========================
+Thumbs.db
