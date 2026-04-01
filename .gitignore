@@ -16,6 +16,8 @@ Makefile
 # ========================
 # Compiled object files
 # ========================
+server
+client
 *.o
 *.obj
 *.lo

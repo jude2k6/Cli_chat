@@ -8,17 +8,23 @@
 #include <stdio.h>
 #include <string.h>
 #include <poll.h>
-#include <stdlib.h>
-#include <errno.h>
-
-
+#include <sqlite3.h>
+#include "sodium.h"
+#include "include/network/packet.h"
+#include "include/auth/auth.h"
 #define MAX_CLIENTS 10
+
+typedef struct client_t {
+    uint32_t id;
+    int fd;
+    char name[10];
+} client_t;
 
 
 int getListener() {
     struct addrinfo hints;
     struct addrinfo *service_info; // will point to the results
-    int socket_fd, new_fd;
+    int socket_fd;
 
     memset(&hints, 0, sizeof hints); // make sure the struct is empty
     hints.ai_family = AF_UNSPEC; // don't care IPv4 or IPv6
@@ -34,7 +40,10 @@ int getListener() {
     return socket_fd;
 }
 
-void handleConnection(struct pollfd poll_fds[], nfds_t *nConnections) {
+
+int handleConnection(struct pollfd poll_fds[], nfds_t *num_clients, client_t **clients) {
+
+
     struct sockaddr_storage their_addr;
     socklen_t addr_size = sizeof their_addr;
     int new_fd = accept(poll_fds[0].fd, (struct sockaddr *) &their_addr, &addr_size);
@@ -42,16 +51,17 @@ void handleConnection(struct pollfd poll_fds[], nfds_t *nConnections) {
     new_fd_struct.fd = new_fd;
     new_fd_struct.events = POLLIN;
     new_fd_struct.revents = 0;
-    poll_fds[*nConnections + 1] = new_fd_struct;
-    *nConnections +=1;
-    printf("Connect client on fd %d\n\n\n",new_fd);
+    poll_fds[*num_clients + 1] = new_fd_struct;
+    *num_clients += 1;
+    printf("Client connection fully handled\n");
+    return new_fd;
 }
 
-void handleDisconnection(int remove_index, struct pollfd poll_fds[], nfds_t *nConnections) {
-    printf("Removed client on fd %d \n\n\n",poll_fds[remove_index].fd);
-    poll_fds[remove_index] = poll_fds[*nConnections];
-    *nConnections -=1;
 
+void handleDisconnection(int remove_index, struct pollfd poll_fds[], nfds_t *num_clients) {
+    printf("Removed client on fd %d \n\n\n", poll_fds[remove_index].fd);
+    poll_fds[remove_index] = poll_fds[*num_clients];
+    *num_clients -= 1;
 }
 
 struct pollfd packPollFd(int socket_fd) {
@@ -59,59 +69,77 @@ struct pollfd packPollFd(int socket_fd) {
     p.fd = socket_fd;
     p.events = POLLIN;
     p.revents = 0;
-    return  p;
+    return p;
 }
 
-void handleClient(int sender_fd, struct pollfd poll_fds[], nfds_t *nConnections) {
-    char buf[256];
-    int nbytes = recv(sender_fd, buf, sizeof(buf), 0);
-    if (nbytes <= 0) {
 
-        if (nbytes == 0) {
-            handleDisconnection(sender_fd,poll_fds,nConnections);
-        }
-    } else {
-        printf("Message from %d: %s \n\n\n", sender_fd,buf); //forward message to all other clients
-
-
-        for (int i = 1; i <= *nConnections; ++i) {
-            if (poll_fds[i].fd != sender_fd) {
-                send(poll_fds[i].fd,buf,nbytes,0);
-            }
-
+void send_message(int sender_fd, client_t **clients, nfds_t *num_clients, packet_t packet) {
+    for (int i = 1; i <= *num_clients; ++i) {
+        if (sender_fd != clients[i]->fd) {
+            forward_packet(&packet, sender_fd);
         }
     }
 }
 
 
+void handle_packet_server(int sender_fd, client_t **clients, nfds_t *num_clients, sqlite3 *db) {
+    packet_t packet = recieve_packet(sender_fd);
+    switch (packet.header.type) {
+        case MESSAGE: {
+            send_message(sender_fd, clients, num_clients, packet);
+
+            break;
+        }
+        case SYSTEM: {
+            break;
+        }
+        case COMMAND: {
+            break;
+        }
+        case AUTH_SEND: {
+            printf("confirming auth\n");
+                confirm_auth(packet,db);
+            break;
+        }
+    }
+}
+
 
 int main() {
-    int listener_fd = getListener();
+    if (sodium_init() < 0) {
+        printf("Libsodium error");
+        exit(-1);
+    }
+
+    sqlite3 *db;
+    sqlite3_open("../users.db", &db);
+
 
     struct pollfd poll_fds[MAX_CLIENTS];
+    client_t *clients[MAX_CLIENTS];
+
+
+    int listener_fd = getListener();
     poll_fds[0] = packPollFd(listener_fd);
 
-    nfds_t nConnections = 0;
+    nfds_t num_clients = 0;
 
     int ready;
 
     while (1) {
-        printf("in while loop\n\n\n");
-        ready = poll(poll_fds, nConnections + 1, -1);
+        ready = poll(poll_fds, num_clients + 1, -1);
         if (ready == -1) {
             printf("Error");
             return -1;
         }
-        printf("Number of ready on poll %d \n\n\n",ready);
 
-        for (nfds_t i = 0; i < nConnections + 1; i++) {
+        for (nfds_t i = 0; i < num_clients + 1; i++) {
             if ((i == 0) && (poll_fds[i].revents & POLLIN)) {
+                int fd= handleConnection(poll_fds, &num_clients, clients);
+                request_auth(fd);
 
-                printf("Trying to handle connection\n\n\n");
-                handleConnection(poll_fds, &nConnections);
             } else if (poll_fds[i].revents & POLLIN) {
-
-                handleClient(poll_fds[i].fd, poll_fds, &nConnections);
+                handle_packet_server(poll_fds[i].fd, clients, &num_clients,db);
             }
         }
     }

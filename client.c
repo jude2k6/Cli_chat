@@ -10,14 +10,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <poll.h>
+#include <sqlite3.h>
+#include "sodium.h"
+#include "include/network/packet.h"
+#include "include/auth/auth.h"
 
 
 int getServerFd() {
+    printf("getting fds");
     int status;
     struct addrinfo hints;
     struct addrinfo *service_info; // will point to the results
     int socket_fd;
-    int trys =0;
+    int trys = 0;
 
     memset(&hints, 0, sizeof hints); // make sure the struct is empty
     hints.ai_family = AF_UNSPEC; // don't care IPv4 or IPv6
@@ -26,12 +31,11 @@ int getServerFd() {
     status = getaddrinfo("localhost", "5000", &hints, &service_info);
     socket_fd = socket(service_info->ai_family, service_info->ai_socktype, service_info->ai_protocol);
     int connection = connect(socket_fd, service_info->ai_addr, service_info->ai_addrlen);
-    while ((connection == -1) && trys<10){
+    while ((connection == -1) && trys < 10) {
         connection = connect(socket_fd, service_info->ai_addr, service_info->ai_addrlen);
         trys++;
-
     }
-    if (connection ==-1) {
+    if (connection == -1) {
         perror("Failed to connect to server: ");
         exit(-1);
     }
@@ -39,26 +43,12 @@ int getServerFd() {
 }
 
 
-
-void recieveMessage(int sender_fd) {
-    char buf[256];
-    int nbytes = recv(sender_fd, buf, sizeof(buf), 0);
-    printf("Message: %s\n\n\n", buf);
-}
-
-
-void recieveMessage(int sender_fd) {
-    char buf[256];
-    int nbytes = recv(sender_fd, buf, sizeof(buf), 0);
-    printf("Message: %s\n\n\n", buf);
-}
-
 void sendMessage(struct pollfd poll_fds[]) {
     char buf[256];
     fgets(buf, sizeof(buf), stdin);
 
-   int bytes_sent= send(poll_fds[0].fd, buf, sizeof(buf), 0);
-    printf("Sent %d,bytes to server \n\n\n",bytes_sent);
+    int bytes_sent = send(poll_fds[0].fd, buf, sizeof(buf), 0);
+    printf("Sent %d,bytes to server \n\n\n", bytes_sent);
 }
 
 
@@ -70,8 +60,36 @@ struct pollfd packPollFd(int socket_fd) {
     return p;
 }
 
+
+void handle_packet_client(int server_fd) {
+    packet_t packet = recieve_packet(server_fd);
+    printf("Packet recieved");
+    switch (packet.header.type) {
+        case MESSAGE: {
+            break;
+        }
+        case SYSTEM: {
+            break;
+        }
+        case COMMAND: {
+            break;
+        }
+        case AUTH_REQ: {
+            printf("recieved auth request");
+            send_auth(packet, server_fd);
+            break;
+        }
+    }
+}
+
 int main() {
+    if (sodium_init() < 0) {
+        printf("Libsodium error\n");
+        exit(-1);
+    }
+    printf("testtttttttttttttttt\n");
     int server_fd = getServerFd();
+    printf("connected to server");
     struct pollfd poll_fds[2];
     poll_fds[0] = packPollFd(server_fd);
     poll_fds[1] = packPollFd(0);
@@ -86,12 +104,16 @@ int main() {
         }
         for (int i = 0; i < 2; ++i) {
             if ((i == 0) && (poll_fds[i].revents & POLLIN)) {
-                recieveMessage(poll_fds[0].fd);
+                handle_packet_client(poll_fds[0].fd);
             } else if ((i == 1) && (poll_fds[i].revents & POLLIN)) {
-                sendMessage(poll_fds);
+
+
             }
         }
     }
 
     return 0;
+
+
+
 }
